@@ -36,7 +36,8 @@ def init_db():
                 question TEXT NOT NULL,
                 answer TEXT NOT NULL,
                 rating INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                resolved BOOLEAN DEFAULT 1
             )
         ''')
     conn.commit()
@@ -75,7 +76,35 @@ async def get_feedbacks():
                 h1 { text-align: center; color: #333; }
                 .answer-cell { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                 .answer-cell:hover { white-space: normal; word-wrap: break-word; }
+                .btn-resolve { 
+                    background-color: #ff3b30; color: white; border: none; padding: 5px 10px; 
+                    cursor: pointer; border-radius: 4px; font-size: 12px;
+                }
+                .btn-resolve:hover { background-color: #d63028; }
+                .resolved-text { color: #28cd41; font-weight: bold; }
+                .script-container { display: none; }
             </style>
+            <script>
+                async function markResolved(id, btn) {
+                    if (!confirm('确认已更新素材并解决此问题？')) return;
+                    try {
+                        const response = await fetch('/mark_resolved', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ feedback_id: id })
+                        });
+                        const result = await response.json();
+                        if (result.status === 'success') {
+                            const cell = btn.parentElement;
+                            cell.innerHTML = '<span class="resolved-text">已解决</span>';
+                        } else {
+                            alert('操作失败: ' + result.detail);
+                        }
+                    } catch (e) {
+                        alert('网络错误');
+                    }
+                }
+            </script>
         </head>
         <body>
             <h1>用户反馈数据</h1>
@@ -87,6 +116,7 @@ async def get_feedbacks():
                         <th width="200">问题</th>
                         <th>回答 (鼠标悬停查看完整)</th>
                         <th width="80">评分</th>
+                        <th width="100">状态</th>
                         <th width="160">提交时间</th>
                     </tr>
                 </thead>
@@ -94,7 +124,15 @@ async def get_feedbacks():
     """
     for row in rows:
         stars = "★" * row[4] + "☆" * (5 - row[4])
-        # row: id, thread_id, question, answer, rating, created_at
+        # row: id, thread_id, question, answer, rating, created_at, resolved
+        is_resolved = row[6]
+        
+        status_html = '<span class="resolved-text">已解决</span>'
+        if not is_resolved and row[4] < 3:
+            status_html = f'<button class="btn-resolve" onclick="markResolved({row[0]}, this)">标记已解决</button>'
+        elif not is_resolved: # 理论上不应该出现 rating >=3 且 resolved=0 的情况，除非手动改库
+             status_html = '<span class="resolved-text">已解决</span>'
+
         html_content += f"""
                 <tr>
                     <td>{row[0]}</td>
@@ -102,6 +140,7 @@ async def get_feedbacks():
                     <td>{row[2]}</td>
                     <td class="answer-cell" title="{row[3].replace('"', '&quot;')}">{row[3][:100]}...</td>
                     <td><span class="star">{stars}</span> ({row[4]})</td>
+                    <td>{status_html}</td>
                     <td>{row[5]}</td>
                 </tr>
         """
@@ -131,10 +170,10 @@ async def record_qa(request: RecordQARequest):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # 默认评分 3 分
+        # 默认评分 3 分，resolved 默认为 True (1)
         cursor.execute(
-            "INSERT INTO feedback (thread_id, question, answer, rating) VALUES (?, ?, ?, ?)",
-            (request.thread_id, request.question, request.answer, 3)
+            "INSERT INTO feedback (thread_id, question, answer, rating, resolved) VALUES (?, ?, ?, ?, ?)",
+            (request.thread_id, request.question, request.answer, 3, 1)
         )
         feedback_id = cursor.lastrowid
         conn.commit()
@@ -148,13 +187,35 @@ async def update_rating(request: UpdateRatingRequest):
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
+        
+        # 如果评分 < 3，设置 resolved = 0 (False)，否则为 1 (True)
+        is_resolved = 1 if request.rating >= 3 else 0
+        
         cursor.execute(
-            "UPDATE feedback SET rating = ? WHERE id = ?",
-            (request.rating, request.feedback_id)
+            "UPDATE feedback SET rating = ?, resolved = ? WHERE id = ?",
+            (request.rating, is_resolved, request.feedback_id)
         )
         conn.commit()
         conn.close()
         return {"status": "success", "message": "Rating updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class MarkResolvedRequest(BaseModel):
+    feedback_id: int
+
+@app.post("/mark_resolved")
+async def mark_resolved(request: MarkResolvedRequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE feedback SET resolved = 1 WHERE id = ?",
+            (request.feedback_id,)
+        )
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Marked as resolved"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
