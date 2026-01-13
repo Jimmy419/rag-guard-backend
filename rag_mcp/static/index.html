@@ -150,6 +150,32 @@
             background-color: transparent;
             padding: 0;
         }
+        
+        /* Star Rating Styles */
+        .rating-container {
+            margin-top: 8px;
+            display: flex;
+            gap: 4px;
+        }
+        .star {
+            font-size: 20px;
+            color: #ddd;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .star.filled {
+            color: #ffd700;
+        }
+        .star:hover {
+            color: #ffed4a;
+        }
+        .rating-feedback {
+            font-size: 12px;
+            color: #888;
+            margin-left: 8px;
+            display: none;
+            align-self: center;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -243,6 +269,30 @@
                     assistantMessageDiv.innerHTML = marked.parse(assistantText);
                     messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 }
+                
+                // 1. 自动记录 Q&A 到数据库（默认3分）
+                let feedbackId = null;
+                try {
+                    const recordResponse = await fetch('/record_qa', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            thread_id: threadId,
+                            question: text,
+                            answer: assistantText
+                        })
+                    });
+                    const recordResult = await recordResponse.json();
+                    if (recordResult.status === 'success') {
+                        feedbackId = recordResult.id;
+                        console.log('Q&A recorded with ID:', feedbackId);
+                    }
+                } catch (e) {
+                    console.error('Failed to record Q&A:', e);
+                }
+
+                // 2. 对话结束后，添加评分组件，传入 feedbackId
+                addRatingComponent(assistantMessageDiv, feedbackId);
 
             } catch (error) {
                 console.error('Error:', error);
@@ -262,6 +312,102 @@
             div.textContent = text;
             messagesDiv.appendChild(div);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function addRatingComponent(messageDiv, feedbackId) {
+            const container = document.createElement('div');
+            container.className = 'rating-container';
+            
+            // 默认显示 3 星高亮
+            const defaultRating = 3;
+            
+            for (let i = 1; i <= 5; i++) {
+                const star = document.createElement('span');
+                star.className = 'star';
+                star.innerHTML = '★'; 
+                star.dataset.rating = i;
+                
+                // 默认 3 星状态
+                if (i <= defaultRating) {
+                    star.classList.add('filled');
+                    star.style.color = '#ffd700';
+                }
+
+                star.onclick = () => submitRating(i, container, feedbackId);
+                star.onmouseover = () => highlightStars(container, i);
+                star.onmouseout = () => resetStars(container, defaultRating);
+                container.appendChild(star);
+            }
+            
+            // 保存默认状态
+            container.dataset.submittedRating = defaultRating; 
+
+            const feedbackSpan = document.createElement('span');
+            feedbackSpan.className = 'rating-feedback';
+            feedbackSpan.textContent = '感谢反馈！';
+            container.appendChild(feedbackSpan);
+
+            messageDiv.appendChild(container);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function highlightStars(container, rating) {
+            const stars = container.querySelectorAll('.star');
+            stars.forEach(star => {
+                if (parseInt(star.dataset.rating) <= rating) {
+                    star.classList.add('filled');
+                    star.style.color = '#ffd700';
+                } else {
+                    star.classList.remove('filled');
+                    star.style.color = '#ddd';
+                }
+            });
+        }
+
+        function resetStars(container, defaultRating) {
+            // 如果已提交（或有默认值），恢复到该状态
+            const targetRating = container.dataset.submittedRating ? parseInt(container.dataset.submittedRating) : (defaultRating || 0);
+            highlightStars(container, targetRating);
+        }
+
+        async function submitRating(rating, container, feedbackId) {
+            if (!feedbackId) {
+                console.error("No feedback ID provided");
+                return;
+            }
+            if (container.dataset.submitted === "true") return; // 防止重复提交？或者允许修改？
+            // 这里允许修改吧，还是说点一次就锁死？通常允许修改。
+            // 但需求说“点击...再进行评分更新”，所以应该是允许的。
+            
+            // 记录用户选择的分数
+            container.dataset.submittedRating = rating;
+            // container.dataset.submitted = "true"; // 如果想锁死可以取消注释
+            
+            // 固定显示星星状态
+            highlightStars(container, rating);
+            
+            // 显示反馈文本
+            const feedbackSpan = container.querySelector('.rating-feedback');
+            feedbackSpan.style.display = 'block';
+            feedbackSpan.textContent = '评分更新中...';
+
+            try {
+                await fetch('/update_rating', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        feedback_id: feedbackId,
+                        rating: rating
+                    })
+                });
+                console.log('Rating updated:', rating);
+                feedbackSpan.textContent = '感谢反馈！';
+            } catch (error) {
+                console.error('Error updating rating:', error);
+                feedbackSpan.textContent = '更新失败';
+            }
         }
     </script>
 </body>

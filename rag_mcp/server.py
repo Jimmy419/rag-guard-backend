@@ -1,18 +1,49 @@
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage
 from mcp_client import get_agent
 import asyncio
 
+import sqlite3
+import datetime
+
 app = FastAPI()
 
 # 获取当前文件的绝对路径
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+DB_PATH = os.path.join(BASE_DIR, "feedback.db")
+
+# 初始化数据库
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    # 读取 SQL 文件（如果存在）或者直接执行 SQL 语句
+    sql_path = os.path.join(BASE_DIR, "init_db.sql")
+    if os.path.exists(sql_path):
+        with open(sql_path, "r") as f:
+            cursor.executescript(f.read())
+    else:
+        # Fallback SQL
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id TEXT NOT NULL,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                rating INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+    conn.commit()
+    conn.close()
+
+# 启动时初始化数据库
+init_db()
 
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
@@ -21,9 +52,111 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static"
 async def root():
     return RedirectResponse(url="/static/index.html")
 
+@app.get("/admin/feedbacks", response_class=HTMLResponse)
+async def get_feedbacks():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM feedback ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    
+    html_content = """
+    <html>
+        <head>
+            <title>Feedback List</title>
+            <style>
+                body { font-family: sans-serif; padding: 20px; }
+                table { border-collapse: collapse; width: 100%; max-width: 1200px; margin: 0 auto; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
+                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+                th { background-color: #007aff; color: white; }
+                tr:nth-child(even) { background-color: #f9f9f9; }
+                tr:hover { background-color: #f1f1f1; }
+                .star { color: #ffd700; }
+                h1 { text-align: center; color: #333; }
+                .answer-cell { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .answer-cell:hover { white-space: normal; word-wrap: break-word; }
+            </style>
+        </head>
+        <body>
+            <h1>用户反馈数据</h1>
+            <table>
+                <thead>
+                    <tr>
+                        <th width="50">ID</th>
+                        <th width="120">Thread ID</th>
+                        <th width="200">问题</th>
+                        <th>回答 (鼠标悬停查看完整)</th>
+                        <th width="80">评分</th>
+                        <th width="160">提交时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """
+    for row in rows:
+        stars = "★" * row[4] + "☆" * (5 - row[4])
+        # row: id, thread_id, question, answer, rating, created_at
+        html_content += f"""
+                <tr>
+                    <td>{row[0]}</td>
+                    <td>{row[1]}</td>
+                    <td>{row[2]}</td>
+                    <td class="answer-cell" title="{row[3].replace('"', '&quot;')}">{row[3][:100]}...</td>
+                    <td><span class="star">{stars}</span> ({row[4]})</td>
+                    <td>{row[5]}</td>
+                </tr>
+        """
+    html_content += """
+                </tbody>
+            </table>
+        </body>
+    </html>
+    """
+    return html_content
+
 class ChatRequest(BaseModel):
     message: str
     thread_id: str = "1"
+
+class RecordQARequest(BaseModel):
+    thread_id: str
+    question: str
+    answer: str
+
+class UpdateRatingRequest(BaseModel):
+    feedback_id: int
+    rating: int
+
+@app.post("/record_qa")
+async def record_qa(request: RecordQARequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        # 默认评分 3 分
+        cursor.execute(
+            "INSERT INTO feedback (thread_id, question, answer, rating) VALUES (?, ?, ?, ?)",
+            (request.thread_id, request.question, request.answer, 3)
+        )
+        feedback_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return {"status": "success", "id": feedback_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/update_rating")
+async def update_rating(request: UpdateRatingRequest):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE feedback SET rating = ? WHERE id = ?",
+            (request.rating, request.feedback_id)
+        )
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": "Rating updated"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
