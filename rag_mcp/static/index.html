@@ -174,6 +174,14 @@
         const sendBtn = document.getElementById('sendBtn');
         const typingIndicator = document.getElementById('typingIndicator');
 
+        // 生成或获取 thread_id
+        let threadId = localStorage.getItem('rag_thread_id');
+        if (!threadId) {
+            threadId = 'thread_' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('rag_thread_id', threadId);
+        }
+        console.log("Current Thread ID:", threadId);
+
         userInput.addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 sendMessage();
@@ -207,7 +215,7 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ message: text, thread_id: threadId })
                 });
 
                 if (!response.ok) {

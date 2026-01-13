@@ -98,8 +98,17 @@ def save_graph_visualization(graph, filename: str = "graph.png") -> None:
         print(f"Failed to save graph visualization: {e}")
 
 
+# 全局变量存储 agent 实例
+_agent_instance = None
+
 # 定义并运行agent
 async def get_agent():
+    global _agent_instance
+    
+    # 如果已经初始化过，直接返回
+    if _agent_instance is not None:
+        return _agent_instance
+
     # 实例化MCP Server客户端
     client = MultiServerMCPClient(
         {
@@ -141,6 +150,9 @@ async def get_agent():
     agent = create_react_agent(
         model=llm, tools=tools, prompt=system_message, checkpointer=checkpointer
     )
+
+    # 保存实例
+    _agent_instance = agent
 
     return agent
 
