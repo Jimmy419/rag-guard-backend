@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+matplotlib
+mcp
+langchain
+langchain-core
+langchain-community
+langgraph
+langchain-mcp-adapters
+dashscope
+llama-index
+llama-index-llms-dashscope
+llama-index-embeddings-dashscope
+python-dotenv

@@ -47,7 +47,7 @@ def generate_bar_chart(title: str, x_label: str, y_label: str, categories: List[
     try:
         plt.figure(figsize=(10, 6))
         # Support Chinese characters on MacOS and other systems
-        plt.rcParams['font.sans-serif'] = ['PingFang HK', 'PingFang SC', 'Arial Unicode MS', 'Heiti TC', 'Microsoft YaHei', 'SimHei', 'sans-serif']
+        plt.rcParams['font.sans-serif'] = ['PingFang HK', 'PingFang SC', 'Arial Unicode MS', 'Heiti TC', 'Microsoft YaHei', 'SimHei', 'Noto Sans CJK SC', 'Noto Sans CJK TC', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False
         
         plt.bar(categories, values, color='skyblue')
@@ -76,7 +76,7 @@ def generate_pie_chart(title: str, labels: List[str], values: List[float]) -> st
     """
     try:
         plt.figure(figsize=(8, 8))
-        plt.rcParams['font.sans-serif'] = ['PingFang HK', 'PingFang SC', 'Arial Unicode MS', 'Heiti TC', 'Microsoft YaHei', 'SimHei', 'sans-serif']
+        plt.rcParams['font.sans-serif'] = ['PingFang HK', 'PingFang SC', 'Arial Unicode MS', 'Heiti TC', 'Microsoft YaHei', 'SimHei', 'Noto Sans CJK SC', 'Noto Sans CJK TC', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False
         
         plt.pie(values, labels=labels, autopct='%1.1f%%', startangle=140)

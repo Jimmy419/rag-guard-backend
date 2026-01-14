@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import json
 from mcp.server.fastmcp import FastMCP
@@ -5,7 +6,9 @@ from mcp.server.fastmcp import FastMCP
 # Initialize FastMCP server
 mcp = FastMCP("db-mcp-server")
 
-DB_PATH = "feedback.db"
+# Use absolute path relative to this file
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "feedback.db")
 
 @mcp.tool()
 def query_feedback_db(sql_query: str) -> str:
