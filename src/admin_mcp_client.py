@@ -24,9 +24,9 @@ async def get_admin_agent():
         return _admin_agent_instance
 
     # Define server paths
-    cwd = os.getcwd()
-    db_server_path = os.path.join(cwd, "db_mcp_server.py")
-    chart_server_path = os.path.join(cwd, "chart_mcp_server.py")
+    current_dir = os.path.dirname(__file__)
+    db_server_path = os.path.join(current_dir, "db_mcp_server.py")
+    chart_server_path = os.path.join(current_dir, "chart_mcp_server.py")
     
     # Initialize MultiServerMCPClient
     client = MultiServerMCPClient(

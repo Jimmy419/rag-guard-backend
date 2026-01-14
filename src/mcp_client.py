@@ -115,7 +115,7 @@ async def get_agent():
             "rag-knowledge-base": {
                 "command": sys.executable,
                 "args": [
-                    "/Users/jimmy/Documents/jimmy/projects/master-degree-project/rag-guard-backend/rag_mcp/ragMCPServer.py"
+                    os.path.join(os.path.dirname(__file__), "ragMCPServer.py")
                 ],
                 "transport": "stdio",
                 "env": {
