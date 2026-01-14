@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, AIMessage
 from mcp_client import get_agent
+from admin_mcp_client import get_admin_agent
 import asyncio
 
 import sqlite3
@@ -53,6 +54,40 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static"
 async def root():
     return RedirectResponse(url="/static/index.html")
 
+class AdminChatRequest(BaseModel):
+    message: str
+    thread_id: str = "admin_session"
+
+@app.post("/admin/chat")
+async def admin_chat(request: AdminChatRequest):
+    try:
+        agent = await get_admin_agent()
+        config = {"configurable": {"thread_id": request.thread_id}}
+        
+        # Non-streaming implementation to ensure complete response
+        # Sometimes streaming breaks markdown rendering of images if split across chunks
+        response = await agent.ainvoke(
+            input={"messages": [HumanMessage(content=request.message)]},
+            config=config,
+        )
+        
+        content = response["messages"][-1].content
+        # Ensure content is string
+        if isinstance(content, list):
+             # Join list parts
+             text_content = ""
+             for item in content:
+                 if isinstance(item, str):
+                     text_content += item
+                 elif isinstance(item, dict) and "text" in item:
+                     text_content += item["text"]
+             content = text_content
+        
+        return HTMLResponse(content=content, media_type="text/plain")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/admin/feedbacks", response_class=HTMLResponse)
 async def get_feedbacks():
     conn = sqlite3.connect(DB_PATH)
@@ -64,7 +99,8 @@ async def get_feedbacks():
     html_content = """
     <html>
         <head>
-            <title>Feedback List</title>
+            <title>Feedback List & Data Analysis</title>
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
             <style>
                 body { font-family: sans-serif; padding: 20px; }
                 table { border-collapse: collapse; width: 100%; max-width: 1200px; margin: 0 auto; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
@@ -83,6 +119,37 @@ async def get_feedbacks():
                 .btn-resolve:hover { background-color: #d63028; }
                 .resolved-text { color: #28cd41; font-weight: bold; }
                 .script-container { display: none; }
+                
+                /* Chat Widget Styles */
+                #admin-chat-widget {
+                    position: fixed; bottom: 20px; right: 20px; 
+                    width: 400px; height: 600px; 
+                    background: white; border: 1px solid #ccc; 
+                    border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.2); 
+                    display: flex; flex-direction: column; z-index: 1000;
+                    transition: height 0.3s;
+                }
+                #admin-chat-widget.minimized { height: 40px; }
+                .chat-header {
+                    padding: 10px; background: #007aff; color: white; 
+                    border-radius: 10px 10px 0 0; font-weight: bold; 
+                    display: flex; justify-content: space-between; align-items: center;
+                    cursor: pointer;
+                }
+                #chat-messages {
+                    flex: 1; overflow-y: auto; padding: 15px; background: #f5f5f7;
+                }
+                .message { margin-bottom: 10px; padding: 10px; border-radius: 8px; max-width: 85%; word-wrap: break-word; }
+                .message.user { background: #007aff; color: white; align-self: flex-end; margin-left: auto; }
+                .message.ai { background: white; color: black; align-self: flex-start; border: 1px solid #ddd; }
+                .message img { max-width: 100%; height: auto; border-radius: 4px; margin-top: 5px; }
+                .input-area { padding: 10px; border-top: 1px solid #eee; display: flex; background: white; border-radius: 0 0 10px 10px; }
+                
+                /* Markdown Styles */
+                .message p { margin: 0 0 10px 0; }
+                .message p:last-child { margin: 0; }
+                .message pre { background: #f0f0f0; padding: 10px; border-radius: 4px; overflow-x: auto; }
+                .message code { background: #f0f0f0; padding: 2px 4px; border-radius: 2px; }
             </style>
             <script>
                 async function markResolved(id, btn) {
@@ -102,6 +169,93 @@ async def get_feedbacks():
                         }
                     } catch (e) {
                         alert('网络错误');
+                    }
+                }
+
+                // Chat Functions
+                function toggleChat() {
+                    const widget = document.getElementById('admin-chat-widget');
+                    const content = document.getElementById('chat-content-wrapper');
+                    if (widget.classList.contains('minimized')) {
+                        widget.classList.remove('minimized');
+                        content.style.display = 'flex';
+                    } else {
+                        widget.classList.add('minimized');
+                        content.style.display = 'none';
+                    }
+                }
+
+                async function sendMessage() {
+                    const input = document.getElementById('chat-input');
+                    const message = input.value.trim();
+                    if (!message) return;
+
+                    // Add user message
+                    appendMessage(message, 'user');
+                    input.value = '';
+
+                    // Create AI message container
+                    const aiMessageDiv = document.createElement('div');
+                    aiMessageDiv.className = 'message ai';
+                    aiMessageDiv.innerHTML = 'Thinking...';
+                    document.getElementById('chat-messages').appendChild(aiMessageDiv);
+                    scrollToBottom();
+
+                    let fullText = '';
+                    
+                    try {
+                        const response = await fetch('/admin/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: message })
+                        });
+
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            
+                            const chunk = decoder.decode(value);
+                            fullText += chunk;
+                        }
+                        
+                        // Render Markdown once at the end (since we switched to non-streaming backend)
+                        aiMessageDiv.innerHTML = marked.parse(fullText);
+                        
+                        // Check for images and ensure they load
+                        const images = aiMessageDiv.getElementsByTagName('img');
+                        for(let img of images) {
+                            img.style.maxWidth = '100%';
+                            img.style.display = 'block';
+                            img.style.marginTop = '10px';
+                            img.style.borderRadius = '5px';
+                            img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+                        }
+                        
+                        scrollToBottom();
+                    } catch (e) {
+                        aiMessageDiv.innerHTML = 'Error: ' + e.message;
+                    }
+                }
+
+                function appendMessage(text, type) {
+                    const div = document.createElement('div');
+                    div.className = 'message ' + type;
+                    div.textContent = text;
+                    document.getElementById('chat-messages').appendChild(div);
+                    scrollToBottom();
+                }
+
+                function scrollToBottom() {
+                    const messagesDiv = document.getElementById('chat-messages');
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }
+
+                function handleKeyPress(event) {
+                    if (event.key === 'Enter') {
+                        sendMessage();
                     }
                 }
             </script>
@@ -147,6 +301,22 @@ async def get_feedbacks():
     html_content += """
                 </tbody>
             </table>
+            <!-- Chat Widget -->
+            <div id="admin-chat-widget">
+                <div class="chat-header" onclick="toggleChat()">
+                    <span>数据分析助手</span>
+                    <span>_</span>
+                </div>
+                <div id="chat-content-wrapper" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+                    <div id="chat-messages">
+                        <div class="message ai">你好，我是数据分析助手。我可以帮你查询数据库统计信息并生成图表。</div>
+                    </div>
+                    <div class="input-area">
+                        <input type="text" id="chat-input" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;" placeholder="输入问题..." onkeypress="handleKeyPress(event)">
+                        <button onclick="sendMessage()" style="margin-left: 10px; padding: 8px 15px; background: #007aff; color: white; border: none; border-radius: 4px; cursor: pointer;">发送</button>
+                    </div>
+                </div>
+            </div>
         </body>
     </html>
     """
