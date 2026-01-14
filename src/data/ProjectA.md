@@ -1,4 +1,4 @@
-## DIOR项目介绍
+## ProjectA项目介绍
 这个项目是用来开发一个基于uni-app的Christian Dior Couture的小程序，用户可以在小程序中查看商品信息、购买商品、查看订单等。
 
 ### 项目成员

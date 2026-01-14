@@ -176,6 +176,54 @@
             display: none;
             align-self: center;
         }
+
+        /* Image Styles in Chat */
+        .message.assistant img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-top: 8px;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            object-fit: contain;
+        }
+
+        /* Image Modal (Lightbox) */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 2000; 
+            padding-top: 50px; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgba(0,0,0,0.9); 
+        }
+        .modal-content {
+            margin: auto;
+            display: block;
+            width: 80%;
+            max-width: 1200px;
+            max-height: 90vh;
+            object-fit: contain;
+        }
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            transition: 0.3s;
+            cursor: pointer;
+        }
+        .close:hover, .close:focus {
+            color: #bbb;
+            text-decoration: none;
+            cursor: pointer;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -271,6 +319,15 @@
                 }
                 
                 // 1. 自动记录 Q&A 到数据库（默认3分）
+                
+                // Add click handlers to images for lightbox
+                const images = assistantMessageDiv.getElementsByTagName('img');
+                for(let img of images) {
+                    img.onclick = function() {
+                        openModal(this.src);
+                    };
+                }
+
                 let feedbackId = null;
                 try {
                     const recordResponse = await fetch('/record_qa', {
@@ -409,6 +466,24 @@
                 feedbackSpan.textContent = '更新失败';
             }
         }
+
+        // Modal Functions
+        function openModal(src) {
+            const modal = document.getElementById("image-modal");
+            const modalImg = document.getElementById("img01");
+            modal.style.display = "block";
+            modalImg.src = src;
+        }
+
+        function closeModal() {
+            document.getElementById("image-modal").style.display = "none";
+        }
     </script>
+    
+    <!-- Image Modal -->
+    <div id="image-modal" class="modal" onclick="closeModal()">
+        <span class="close">&times;</span>
+        <img class="modal-content" id="img01">
+    </div>
 </body>
 </html>
